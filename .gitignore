@@ -1,0 +1,6 @@
+# Compiled binary
+/squizy
+
+# Go build/test artifacts
+*.test
+*.out
