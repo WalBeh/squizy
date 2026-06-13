@@ -20,6 +20,7 @@ type LevelResult struct {
 	// Latency distributions (seconds, except rates).
 	TTFT       Dist
 	TTFA       Dist
+	E2E        Dist // end-to-end: send -> last token (s)
 	GenRate    Dist // per-request whole-generation tok/s
 	DecodeRate Dist // per-request answer-only decode tok/s
 	InterToken Dist // mean inter-token gap (s)
@@ -51,11 +52,11 @@ func AggregateLevel(users int, samples []RequestSample) LevelResult {
 	r := LevelResult{Users: users, Total: len(samples)}
 
 	var (
-		ttft, ttfa, inter, think []time.Duration
-		genRates, decodeRates    []float64
-		sumAnswerTok             int
-		sumThinkTok              int
-		minStart, maxEnd         time.Time
+		ttft, ttfa, e2e, inter, think []time.Duration
+		genRates, decodeRates         []float64
+		sumAnswerTok                  int
+		sumThinkTok                   int
+		minStart, maxEnd              time.Time
 	)
 
 	for _, s := range samples {
@@ -82,6 +83,9 @@ func AggregateLevel(users int, samples []RequestSample) LevelResult {
 		if s.TTFA > 0 {
 			ttfa = append(ttfa, s.TTFA)
 		}
+		if !s.Start.IsZero() && s.End.After(s.Start) {
+			e2e = append(e2e, s.End.Sub(s.Start))
+		}
 		if s.InterTokenAvg > 0 {
 			inter = append(inter, s.InterTokenAvg)
 		}
@@ -104,6 +108,7 @@ func AggregateLevel(users int, samples []RequestSample) LevelResult {
 
 	r.TTFT = durDist(ttft)
 	r.TTFA = durDist(ttfa)
+	r.E2E = durDist(e2e)
 	r.InterToken = durDist(inter)
 	r.ThinkLatency = durDist(think)
 	r.GenRate = summarize(genRates)

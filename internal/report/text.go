@@ -50,6 +50,40 @@ func estFlag(l metrics.LevelResult) string {
 	return ""
 }
 
+// PrintLatencyDetail prints full latency distributions per level — the metrics
+// that matter most under saturation, where the table's headline throughput hides
+// the real user experience. Inter-token latency (stream smoothness) and
+// end-to-end (send -> last token) are otherwise invisible.
+func PrintLatencyDetail(w io.Writer, levels []metrics.LevelResult) {
+	if len(levels) == 0 {
+		return
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "latency detail —            p50 /     p90 /     p99 /     max")
+	for _, l := range levels {
+		fmt.Fprintf(w, "  %d users:\n", l.Users)
+		latRow(w, "TTFT", l.TTFT, "s")
+		latRow(w, "TTFA", l.TTFA, "s")
+		latRow(w, "inter-token", l.InterToken, "ms")
+		latRow(w, "end-to-end", l.E2E, "s")
+	}
+}
+
+// latRow renders one latency metric's distribution. unit "ms" rescales from the
+// stored seconds.
+func latRow(w io.Writer, name string, d metrics.Dist, unit string) {
+	if d.N == 0 {
+		fmt.Fprintf(w, "    %-12s        (no samples)\n", name)
+		return
+	}
+	scale := 1.0
+	if unit == "ms" {
+		scale = 1000.0
+	}
+	fmt.Fprintf(w, "    %-12s %7.2f / %7.2f / %7.2f / %7.2f %-2s  (n=%d)\n",
+		name, d.P50*scale, d.P90*scale, d.P99*scale, d.Max*scale, unit, d.N)
+}
+
 // PrintSummary prints the knee verdict, reasoning breakdown, and footnotes.
 func PrintSummary(w io.Writer, res engine.SweepResult, cfg *config.RunConfig) {
 	fmt.Fprintln(w)

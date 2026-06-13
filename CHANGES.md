@@ -6,6 +6,10 @@ All notable changes to squizy are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- Per-level latency detail block: full distributions (p50/p90/p99/max) for TTFT,
+  TTFA, inter-token latency (ms), and end-to-end (send→last token). Surfaces the
+  tail and the inter-token/end-to-end metrics the summary table omits — the
+  numbers that matter most under saturation.
 - `list` subcommand: enumerate models on an endpoint and flag non-chat targets
   (embeddings, OCR, rerankers).
 - `run` subcommand: closed-loop virtual-user load test with concurrency sweep.

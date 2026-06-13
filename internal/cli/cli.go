@@ -114,6 +114,7 @@ func runRun(ctx context.Context, args []string) error {
 
 	res := engine.Run(ctx, cl, cfg, hooks)
 	prog.Clear()
+	report.PrintLatencyDetail(os.Stdout, res.Levels)
 	report.PrintSummary(os.Stdout, res, cfg)
 	return nil
 }
