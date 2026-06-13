@@ -12,9 +12,13 @@ import (
 	"squizy/internal/metrics"
 )
 
-// Header line for the per-level table. "gen" = whole-generation throughput
+// Per-level table column layout. The header and row formats share widths and
+// separators so columns line up. "gen" = whole-generation throughput
 // (think+answer), the true hardware rate; think% shows the reasoning tax.
-const tableHeader = "users   req   err   gen tok/s(agg)  gen/user   think%   TTFT p50/p90    TTFA p50/p90"
+const (
+	tableHdrFmt = "%6s %5s %5s  %10s %8s %7s   %8s %8s   %8s %8s\n"
+	tableRowFmt = "%6d %5d %5d  %9.1f%-1s %8.1f %6.0f%%   %8s %8s   %8s %8s\n"
+)
 
 // PrintRunHeader echoes the target and configuration.
 func PrintRunHeader(w io.Writer, cfg *config.RunConfig) {
@@ -52,10 +56,13 @@ func PrintNetBaseline(w io.Writer, b *client.NetBaseline) {
 }
 
 // PrintTableHeader prints the per-level table header (after the run header and
-// network baseline).
+// network baseline). TTFA is omitted when equal to TTFT (non-reasoning models),
+// but the columns are always present for stable alignment across runs.
 func PrintTableHeader(w io.Writer) {
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, tableHeader)
+	fmt.Fprintf(w, tableHdrFmt,
+		"users", "req", "err", "agg tok/s", "per-user", "think%",
+		"TTFT50", "TTFT90", "TTFA50", "TTFA90")
 }
 
 func sloSpec(cfg *config.RunConfig) string {
@@ -71,7 +78,7 @@ func sloSpec(cfg *config.RunConfig) string {
 
 // PrintLevelRow renders one completed level as a table row.
 func PrintLevelRow(w io.Writer, l metrics.LevelResult) {
-	fmt.Fprintf(w, "%5d %5d %5d   %11.1f%s  %8.1f   %5.0f%%   %6s /%6s   %6s /%6s\n",
+	fmt.Fprintf(w, tableRowFmt,
 		l.Users, l.Total, l.Failed,
 		l.AggregateGen, estFlag(l), l.PerUserGen, l.ThinkTokenFrac*100,
 		secs(l.TTFT.P50), secs(l.TTFT.P90),
@@ -79,31 +86,36 @@ func PrintLevelRow(w io.Writer, l metrics.LevelResult) {
 	)
 }
 
+// estFlag marks a level whose token counts came from the local estimate (one
+// char to keep the column width stable).
 func estFlag(l metrics.LevelResult) string {
 	if l.Estimated {
-		return " ~"
+		return "~"
 	}
-	return ""
+	return " "
 }
+
+// latColHeader aligns with the value columns produced by latRow.
+const latColHeader = "  %-12s %9s %9s %9s %9s\n"
 
 // PrintLatencyDetail prints full latency distributions per level — the metrics
 // that matter most under saturation, where the table's headline throughput hides
 // the real user experience. Inter-token latency (stream smoothness) and
-// end-to-end (send -> last token) are otherwise invisible.
+// end-to-end (send -> last token) are otherwise invisible. Each metric is a row;
+// percentiles are right-aligned columns with the unit in the last column.
 func PrintLatencyDetail(w io.Writer, levels []metrics.LevelResult) {
 	if len(levels) == 0 {
 		return
 	}
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "latency detail —            p50 /     p90 /     p99 /     max")
 	for _, l := range levels {
-		fmt.Fprintf(w, "  %d users:\n", l.Users)
+		fmt.Fprintf(w, "\nlatency · %d users (n=%d)\n", l.Users, l.TTFT.N)
+		fmt.Fprintf(w, latColHeader, "metric", "p50", "p90", "p99", "max")
 		latRow(w, "TTFT", l.TTFT, "s")
 		latRow(w, "TTFA", l.TTFA, "s")
 		latRow(w, "inter-token", l.InterToken, "ms")
 		latRow(w, "end-to-end", l.E2E, "s")
 		if l.TTFTSLOMet >= 0 || l.E2ESLOMet >= 0 {
-			fmt.Fprintf(w, "    %-12s %s\n", "SLO met", sloMet(l))
+			fmt.Fprintf(w, "  %-12s %s\n", "SLO met", sloMet(l))
 		}
 	}
 }
@@ -128,19 +140,20 @@ func pctFlag(frac float64) string {
 	return s
 }
 
-// latRow renders one latency metric's distribution. unit "ms" rescales from the
-// stored seconds.
+// latRow renders one latency metric's distribution as aligned columns. unit
+// "ms" rescales from the stored seconds; the unit prints after the value
+// columns so magnitudes stay readable (e.g. inter-token in ms, not 0.09 s).
 func latRow(w io.Writer, name string, d metrics.Dist, unit string) {
 	if d.N == 0 {
-		fmt.Fprintf(w, "    %-12s        (no samples)\n", name)
+		fmt.Fprintf(w, "  %-12s %9s\n", name, "—")
 		return
 	}
 	scale := 1.0
 	if unit == "ms" {
 		scale = 1000.0
 	}
-	fmt.Fprintf(w, "    %-12s %7.2f / %7.2f / %7.2f / %7.2f %-2s  (n=%d)\n",
-		name, d.P50*scale, d.P90*scale, d.P99*scale, d.Max*scale, unit, d.N)
+	fmt.Fprintf(w, "  %-12s %9.2f %9.2f %9.2f %9.2f  %s\n",
+		name, d.P50*scale, d.P90*scale, d.P99*scale, d.Max*scale, unit)
 }
 
 // PrintSummary prints the knee verdict, reasoning breakdown, and footnotes.

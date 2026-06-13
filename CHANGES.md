@@ -40,6 +40,11 @@ All notable changes to squizy are documented here. Format loosely follows
 - Optional auth via `--api-key` or `SQUIZY_API_KEY`; per-request timeout with
   non-fatal error counting.
 
+### Changed
+- Readability pass on output: the per-level table and the latency detail block
+  now use shared, right-aligned column layouts (percentiles as columns with a
+  unit column) instead of slash-separated inline values.
+
 ### Notes
 - Pure Go standard library, no external dependencies.
 - Validated end-to-end against a live omlx endpoint.
