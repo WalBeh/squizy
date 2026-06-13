@@ -43,7 +43,11 @@ func (c *Client) StreamChat(ctx context.Context, p ChatParams) *StreamObservatio
 	}
 	defer resp.Body.Close()
 
-	var think, answer strings.Builder
+	var think, content strings.Builder
+	var firstContentTime, crossedTime time.Time
+	var allArrivals []time.Time
+	var tagTail string // sliding suffix to catch </think> split across deltas
+
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
@@ -82,6 +86,8 @@ func (c *Client) StreamChat(ctx context.Context, p ChatParams) *StreamObservatio
 			obs.FinishReason = *fr
 		}
 
+		// Path 1: server exposes a dedicated reasoning field (omlx, vLLM with a
+		// reasoning parser). Thinking and answer arrive pre-separated.
 		if rc := d.reasoning(); rc != "" {
 			if obs.FirstThinkTime.IsZero() {
 				obs.FirstThinkTime = now
@@ -89,13 +95,24 @@ func (c *Client) StreamChat(ctx context.Context, p ChatParams) *StreamObservatio
 			think.WriteString(rc)
 			obs.LastTime = now
 		}
+		// Path 2: content. May be a pure answer, or inline reasoning ending in
+		// </think> (Nemotron/DeepSeek with no parser — the template pre-opens the
+		// tag, so only the closing tag appears). Detect the boundary live so TTFA
+		// reflects the first real answer token, not the first thinking token.
 		if d.Content != "" {
-			if obs.FirstAnswerTime.IsZero() {
-				obs.FirstAnswerTime = now
+			if firstContentTime.IsZero() {
+				firstContentTime = now
 			}
-			answer.WriteString(d.Content)
-			obs.AnswerArrivals = append(obs.AnswerArrivals, now)
+			content.WriteString(d.Content)
+			allArrivals = append(allArrivals, now)
 			obs.LastTime = now
+			if crossedTime.IsZero() {
+				if strings.Contains(tagTail+d.Content, "</think>") {
+					crossedTime = now
+				} else {
+					tagTail = lastN(tagTail+d.Content, 7)
+				}
+			}
 		}
 	}
 	if err := sc.Err(); err != nil {
@@ -103,31 +120,62 @@ func (c *Client) StreamChat(ctx context.Context, p ChatParams) *StreamObservatio
 	}
 
 	obs.ThinkText = think.String()
-	obs.AnswerText = answer.String()
+	full := content.String()
 
-	// Fallback: some servers inline <think>...</think> in content instead of
-	// using reasoning_content. Split it out so reasoning metrics still work.
-	if obs.ThinkText == "" {
-		if t, a, ok := splitThinkTags(obs.AnswerText); ok {
-			obs.ThinkText, obs.AnswerText = t, a
+	switch {
+	case obs.ThinkText != "":
+		// Dedicated reasoning field used; all content is the answer.
+		obs.AnswerText = full
+		if obs.FirstAnswerTime.IsZero() {
+			obs.FirstAnswerTime = firstContentTime
 		}
+		obs.AnswerArrivals = allArrivals
+	case !crossedTime.IsZero():
+		// Inline reasoning: split at </think>; thinking started with the first
+		// content token, the answer at the boundary.
+		obs.ThinkText, obs.AnswerText = splitInline(full)
+		obs.FirstThinkTime = firstContentTime
+		obs.FirstAnswerTime = crossedTime
+		obs.AnswerArrivals = after(allArrivals, crossedTime)
+	default:
+		// No reasoning: content is the whole answer.
+		obs.AnswerText = full
+		obs.FirstAnswerTime = firstContentTime
+		obs.AnswerArrivals = allArrivals
 	}
 	return obs
 }
 
-// splitThinkTags extracts a leading <think>...</think> block from content.
-// Returns ok=false when no such block is present.
-func splitThinkTags(s string) (think, answer string, ok bool) {
+// splitInline splits content at the first </think>, stripping a leading <think>
+// if the model emitted one. Caller guarantees </think> is present.
+func splitInline(s string) (think, answer string) {
 	const open, close = "<think>", "</think>"
-	i := strings.Index(s, open)
-	if i < 0 {
-		return "", "", false
-	}
 	j := strings.Index(s, close)
-	if j < 0 || j < i {
-		return "", "", false
+	if j < 0 {
+		return "", strings.TrimSpace(s)
 	}
-	think = strings.TrimSpace(s[i+len(open) : j])
-	answer = strings.TrimSpace(s[:i] + s[j+len(close):])
-	return think, answer, true
+	start := 0
+	if i := strings.Index(s[:j], open); i >= 0 {
+		start = i + len(open)
+	}
+	return strings.TrimSpace(s[start:j]), strings.TrimSpace(s[j+len(close):])
+}
+
+// after returns the timestamps strictly later than t.
+func after(ts []time.Time, t time.Time) []time.Time {
+	var out []time.Time
+	for _, x := range ts {
+		if x.After(t) {
+			out = append(out, x)
+		}
+	}
+	return out
+}
+
+// lastN returns the last n bytes of s (all of s if shorter).
+func lastN(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[len(s)-n:]
 }

@@ -73,6 +73,8 @@ func runRun(ctx context.Context, args []string) error {
 	fs.StringVar(&cfg.BaseURL, "base-url", "", "server root including /v1 (required)")
 	fs.StringVar(&cfg.Model, "model", "", "model id from `squizy list` (required)")
 	fs.StringVar(&apiKey, "api-key", "", "bearer token (or SQUIZY_API_KEY)")
+	fs.StringVar(&cfg.System, "system", "", "system prompt (e.g. 'detailed thinking on' to toggle reasoning)")
+	fs.StringVar(&cfg.Task, "task", "prose", "workload prompt style: prose | reason")
 	fs.IntVar(&cfg.InputTokens, "input-tokens", 512, "target prompt input length")
 	fs.IntVar(&cfg.OutputTokens, "output-tokens", 256, "target answer length (steers prompt)")
 	fs.IntVar(&cfg.MaxTokens, "max-tokens", 0, "hard generation cap (0=auto; raise for reasoning models)")

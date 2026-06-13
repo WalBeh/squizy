@@ -6,6 +6,17 @@ All notable changes to squizy are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- Inline reasoning detection: models that emit thinking inside `content` ending
+  in `</think>` (Nemotron/DeepSeek with no server-side reasoning parser) are now
+  split correctly, with the `</think>` boundary detected *during* streaming so
+  TTFA reflects the first real answer token (the thinking tax) rather than the
+  first thinking token. Handles closing-tag-only output (template-opened think
+  blocks) in addition to full `<think>…</think>`.
+- `--system`: inject a system prompt (e.g. `detailed thinking on` to toggle
+  Nemotron reasoning).
+- `--task prose|reason`: workload prompt style. `reason` poses randomized
+  step-by-step problems that trigger a reasoning model's thinking block, so
+  reasoning-mode throughput/latency can be measured.
 - Network baseline: `--net-probes` (default 5) measures transport latency
   (cold TCP connect + warm round-trip min/p50/p90) against `/health` (falling
   back to `/v1/models`) and prints a one-line floor at the top of the run, so

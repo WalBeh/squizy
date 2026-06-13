@@ -29,7 +29,7 @@ func runVUser(
 	rnd := rand.New(rand.NewSource(seed))
 
 	for !stop() {
-		conv := workload.NewConversation(rnd, cfg.InputTokens, cfg.OutputTokens, cfg.UniquePrompts)
+		conv := workload.NewConversation(rnd, cfg.System, cfg.Task, cfg.InputTokens, cfg.OutputTokens, cfg.UniquePrompts)
 		for turn := 0; turn < cfg.Turns; turn++ {
 			if stop() || !reserve() {
 				return

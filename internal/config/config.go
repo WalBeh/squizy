@@ -13,6 +13,8 @@ type RunConfig struct {
 	Model   string
 	APIKey  string
 
+	System        string // optional system prompt (e.g. "detailed thinking on")
+	Task          string // workload prompt style: "prose" or "reason"
 	InputTokens   int
 	OutputTokens  int
 	MaxTokens     int // hard generation cap; 0 = auto from OutputTokens
@@ -55,6 +57,9 @@ func (c *RunConfig) Validate() error {
 	}
 	if c.Turns < 1 {
 		return errors.New("--turns must be >= 1")
+	}
+	if c.Task != "prose" && c.Task != "reason" {
+		return errors.New("--task must be 'prose' or 'reason'")
 	}
 	if c.StartUsers < 1 {
 		return errors.New("--start-users must be >= 1")
