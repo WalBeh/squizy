@@ -4,3 +4,6 @@
 # Go build/test artifacts
 *.test
 *.out
+
+# Local Claude Code settings (may contain machine-local tokens)
+.claude/settings.local.json
