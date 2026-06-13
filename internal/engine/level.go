@@ -88,7 +88,7 @@ func runLevel(
 	close(samplesCh)
 	<-done
 
-	return metrics.AggregateLevel(users, samples)
+	return metrics.AggregateLevel(users, samples, cfg.TTFTSLO, cfg.E2ESLO)
 }
 
 // warmup fires a few discarded requests so model-load / cold-start cost stays

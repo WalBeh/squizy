@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"squizy/internal/client"
 	"squizy/internal/config"
 	"squizy/internal/engine"
 	"squizy/internal/metrics"
@@ -28,9 +29,44 @@ func PrintRunHeader(w io.Writer, cfg *config.RunConfig) {
 	if cfg.NoSweep {
 		mode = "single-level"
 	}
-	fmt.Fprintf(w, "        per-level=%s warmup=%d timeout=%s  %s start=%d max=%d\n\n",
+	fmt.Fprintf(w, "        per-level=%s warmup=%d timeout=%s  %s start=%d max=%d\n",
 		stop, cfg.Warmup, cfg.Timeout, mode, cfg.StartUsers, cfg.MaxUsers)
+	if cfg.HasSLO() {
+		fmt.Fprintf(w, "        SLO: %s\n", sloSpec(cfg))
+	}
+}
+
+// PrintNetBaseline prints the one-line transport-latency floor measured before
+// the run — the network tax baked into every latency below.
+func PrintNetBaseline(w io.Writer, b *client.NetBaseline) {
+	if b == nil {
+		return
+	}
+	if !b.Reachable {
+		fmt.Fprintf(w, "network: %s unreachable — latency floor unknown\n", b.Path)
+		return
+	}
+	min, p50, p90 := b.TTFBStats()
+	fmt.Fprintf(w, "network: %s connect %.1fms · round-trip %.1f/%.1f/%.1fms (min/p50/p90, n=%d) — floor under all latency below\n",
+		b.Path, b.ConnectMs, min, p50, p90, len(b.TTFBms))
+}
+
+// PrintTableHeader prints the per-level table header (after the run header and
+// network baseline).
+func PrintTableHeader(w io.Writer) {
+	fmt.Fprintln(w)
 	fmt.Fprintln(w, tableHeader)
+}
+
+func sloSpec(cfg *config.RunConfig) string {
+	var parts []string
+	if cfg.TTFTSLO > 0 {
+		parts = append(parts, "TTFT≤"+cfg.TTFTSLO.String())
+	}
+	if cfg.E2ESLO > 0 {
+		parts = append(parts, "E2E≤"+cfg.E2ESLO.String())
+	}
+	return strings.Join(parts, "  ")
 }
 
 // PrintLevelRow renders one completed level as a table row.
@@ -66,7 +102,30 @@ func PrintLatencyDetail(w io.Writer, levels []metrics.LevelResult) {
 		latRow(w, "TTFA", l.TTFA, "s")
 		latRow(w, "inter-token", l.InterToken, "ms")
 		latRow(w, "end-to-end", l.E2E, "s")
+		if l.TTFTSLOMet >= 0 || l.E2ESLOMet >= 0 {
+			fmt.Fprintf(w, "    %-12s %s\n", "SLO met", sloMet(l))
+		}
 	}
+}
+
+// sloMet formats the per-level SLO attainment, flagging anything under 100%.
+func sloMet(l metrics.LevelResult) string {
+	var parts []string
+	if l.TTFTSLOMet >= 0 {
+		parts = append(parts, fmt.Sprintf("TTFT %s", pctFlag(l.TTFTSLOMet)))
+	}
+	if l.E2ESLOMet >= 0 {
+		parts = append(parts, fmt.Sprintf("E2E %s", pctFlag(l.E2ESLOMet)))
+	}
+	return strings.Join(parts, "   ")
+}
+
+func pctFlag(frac float64) string {
+	s := fmt.Sprintf("%.0f%%", frac*100)
+	if frac < 1.0 {
+		s += " ✗"
+	}
+	return s
 }
 
 // latRow renders one latency metric's distribution. unit "ms" rescales from the
@@ -104,6 +163,15 @@ func PrintSummary(w io.Writer, res engine.SweepResult, cfg *config.RunConfig) {
 			k.ThinkTokenFrac*100, k.ThinkLatency.P50, k.Users)
 		fmt.Fprintf(w, "answer-only: useful output %.0f tok/s aggregate, %.0f tok/s per user (excludes thinking).\n",
 			k.AggregateAnswer, k.PerUserAnswer)
+	}
+
+	if cfg.HasSLO() {
+		if cfg.TTFTSLO > 0 {
+			fmt.Fprintf(w, "SLO TTFT≤%s: %s\n", cfg.TTFTSLO, sloVerdict(res.Levels, func(l metrics.LevelResult) float64 { return l.TTFTSLOMet }))
+		}
+		if cfg.E2ESLO > 0 {
+			fmt.Fprintf(w, "SLO E2E≤%s: %s\n", cfg.E2ESLO, sloVerdict(res.Levels, func(l metrics.LevelResult) float64 { return l.E2ESLOMet }))
+		}
 	}
 
 	if short, est := footnotes(res.Levels); short > 0 || est {
@@ -158,6 +226,35 @@ func firstPerUser(levels []metrics.LevelResult) float64 {
 		return 0
 	}
 	return levels[0].PerUserGen
+}
+
+// sloVerdict reports the highest concurrency level at which the objective held
+// fully (100%), and the first level that breached it.
+func sloVerdict(levels []metrics.LevelResult, met func(metrics.LevelResult) float64) string {
+	heldUsers, breachUsers := 0, 0
+	for _, l := range levels {
+		m := met(l)
+		if m < 0 {
+			continue
+		}
+		if m >= 1.0 {
+			if l.Users > heldUsers {
+				heldUsers = l.Users
+			}
+		} else if breachUsers == 0 {
+			breachUsers = l.Users
+		}
+	}
+	switch {
+	case heldUsers == 0 && breachUsers == 0:
+		return "no data"
+	case heldUsers == 0:
+		return fmt.Sprintf("breached already at %d users", breachUsers)
+	case breachUsers == 0:
+		return fmt.Sprintf("held through %d users (all levels)", heldUsers)
+	default:
+		return fmt.Sprintf("held through %d users, first breach at %d", heldUsers, breachUsers)
+	}
 }
 
 func firstUsers(levels []metrics.LevelResult) int {

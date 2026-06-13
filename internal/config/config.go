@@ -28,8 +28,12 @@ type RunConfig struct {
 	Duration time.Duration // per-level run time; ignored when Requests > 0
 	Requests int           // per-level request count; overrides Duration when > 0
 
-	Warmup  int
-	Timeout time.Duration
+	Warmup    int
+	Timeout   time.Duration
+	NetProbes int // transport-latency baseline probes at startup (0 = skip)
+
+	TTFTSLO time.Duration // service-level objective for time-to-first-token (0 = off)
+	E2ESLO  time.Duration // service-level objective for end-to-end latency (0 = off)
 
 	KneeGain      float64 // min aggregate tok/s improvement to keep ramping
 	KneeErrorRate float64 // error rate that halts the sweep
@@ -66,6 +70,9 @@ func (c *RunConfig) Validate() error {
 
 // StopByRequests reports whether levels stop after a fixed request count.
 func (c *RunConfig) StopByRequests() bool { return c.Requests > 0 }
+
+// HasSLO reports whether any service-level objective is configured.
+func (c *RunConfig) HasSLO() bool { return c.TTFTSLO > 0 || c.E2ESLO > 0 }
 
 // EffectiveMaxTokens is the hard generation cap sent to the server. When
 // MaxTokens is unset it leaves headroom above the output target; for reasoning

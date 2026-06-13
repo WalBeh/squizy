@@ -87,6 +87,9 @@ func runRun(ctx context.Context, args []string) error {
 	fs.IntVar(&cfg.Requests, "requests", 0, "per-level request count (overrides --duration)")
 	fs.IntVar(&cfg.Warmup, "warmup", 1, "discarded warmup requests")
 	fs.DurationVar(&cfg.Timeout, "timeout", 120*time.Second, "per-request timeout")
+	fs.IntVar(&cfg.NetProbes, "net-probes", 5, "transport-latency baseline probes at startup (0=skip)")
+	fs.DurationVar(&cfg.TTFTSLO, "ttft-slo", 0, "SLO for time-to-first-token, e.g. 2s (0=off)")
+	fs.DurationVar(&cfg.E2ESLO, "e2e-slo", 0, "SLO for end-to-end latency, e.g. 30s (0=off)")
 	fs.Float64Var(&cfg.KneeGain, "knee-gain", 0.10, "min aggregate improvement to keep ramping")
 	fs.Float64Var(&cfg.KneeErrorRate, "knee-error-rate", 0.05, "error rate that stops the sweep")
 	if err := fs.Parse(args); err != nil {
@@ -101,6 +104,10 @@ func runRun(ctx context.Context, args []string) error {
 
 	prog := report.NewProgress(os.Stderr, isTerminal(os.Stderr))
 	report.PrintRunHeader(os.Stdout, cfg)
+	if cfg.NetProbes > 0 {
+		report.PrintNetBaseline(os.Stdout, cl.Probe(ctx, cfg.NetProbes))
+	}
+	report.PrintTableHeader(os.Stdout)
 
 	hooks := engine.Hooks{
 		OnWarmup:     func(n int) { prog.Warmup(n) },

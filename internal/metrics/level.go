@@ -33,6 +33,11 @@ type LevelResult struct {
 	Estimated  bool // any sample relied on local token estimate
 	ShortCount int  // answers below output target
 
+	// SLO attainment: fraction of successful requests meeting the objective.
+	// -1 means the objective was not configured.
+	TTFTSLOMet float64
+	E2ESLOMet  float64
+
 	WindowSeconds float64
 }
 
@@ -47,9 +52,9 @@ func (r LevelResult) ErrorRate() float64 {
 // AggregateLevel folds samples for one level into a LevelResult. System
 // throughput uses the wall-clock span from the first request sent to the last
 // token received across all successful requests — the load the server actually
-// sustained.
-func AggregateLevel(users int, samples []RequestSample) LevelResult {
-	r := LevelResult{Users: users, Total: len(samples)}
+// sustained. ttftSLO/e2eSLO (0 = off) drive SLO attainment.
+func AggregateLevel(users int, samples []RequestSample, ttftSLO, e2eSLO time.Duration) LevelResult {
+	r := LevelResult{Users: users, Total: len(samples), TTFTSLOMet: -1, E2ESLOMet: -1}
 
 	var (
 		ttft, ttfa, e2e, inter, think []time.Duration
@@ -57,6 +62,7 @@ func AggregateLevel(users int, samples []RequestSample) LevelResult {
 		sumAnswerTok                  int
 		sumThinkTok                   int
 		minStart, maxEnd              time.Time
+		ttftOK, ttftN, e2eOK, e2eN    int
 	)
 
 	for _, s := range samples {
@@ -83,8 +89,21 @@ func AggregateLevel(users int, samples []RequestSample) LevelResult {
 		if s.TTFA > 0 {
 			ttfa = append(ttfa, s.TTFA)
 		}
+		if s.TTFT > 0 && ttftSLO > 0 {
+			ttftN++
+			if s.TTFT <= ttftSLO {
+				ttftOK++
+			}
+		}
 		if !s.Start.IsZero() && s.End.After(s.Start) {
-			e2e = append(e2e, s.End.Sub(s.Start))
+			d := s.End.Sub(s.Start)
+			e2e = append(e2e, d)
+			if e2eSLO > 0 {
+				e2eN++
+				if d <= e2eSLO {
+					e2eOK++
+				}
+			}
 		}
 		if s.InterTokenAvg > 0 {
 			inter = append(inter, s.InterTokenAvg)
@@ -128,6 +147,12 @@ func AggregateLevel(users int, samples []RequestSample) LevelResult {
 
 	if tot := sumAnswerTok + sumThinkTok; tot > 0 {
 		r.ThinkTokenFrac = float64(sumThinkTok) / float64(tot)
+	}
+	if ttftN > 0 {
+		r.TTFTSLOMet = float64(ttftOK) / float64(ttftN)
+	}
+	if e2eN > 0 {
+		r.E2ESLOMet = float64(e2eOK) / float64(e2eN)
 	}
 	return r
 }

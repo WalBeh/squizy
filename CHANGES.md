@@ -6,6 +6,14 @@ All notable changes to squizy are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- Network baseline: `--net-probes` (default 5) measures transport latency
+  (cold TCP connect + warm round-trip min/p50/p90) against `/health` (falling
+  back to `/v1/models`) and prints a one-line floor at the top of the run, so
+  the network tax under every reported latency is explicit. Uses httptrace, no
+  curl dependency.
+- SLO mode: `--ttft-slo` and `--e2e-slo` (durations, 0=off) report per-level
+  attainment (% of requests meeting the objective, flagged when <100%) in the
+  latency block, plus a verdict of the highest concurrency that still holds.
 - Per-level latency detail block: full distributions (p50/p90/p99/max) for TTFT,
   TTFA, inter-token latency (ms), and end-to-end (send→last token). Surfaces the
   tail and the inter-token/end-to-end metrics the summary table omits — the
