@@ -82,11 +82,11 @@ func (c *Client) StreamChat(ctx context.Context, p ChatParams) *StreamObservatio
 			obs.FinishReason = *fr
 		}
 
-		if d.ReasoningContent != "" {
+		if rc := d.reasoning(); rc != "" {
 			if obs.FirstThinkTime.IsZero() {
 				obs.FirstThinkTime = now
 			}
-			think.WriteString(d.ReasoningContent)
+			think.WriteString(rc)
 			obs.LastTime = now
 		}
 		if d.Content != "" {

@@ -33,12 +33,22 @@ type chunkChoice struct {
 	FinishReason *string `json:"finish_reason"`
 }
 
-// delta carries incremental content. reasoning_content is the thinking stream
-// exposed by vLLM / omlx / DeepSeek-style servers; content is the answer.
+// delta carries incremental content. The thinking stream is exposed under
+// different field names across servers: omlx/DeepSeek use reasoning_content,
+// vLLM uses reasoning. content is always the answer.
 type delta struct {
 	Role             string `json:"role"`
 	Content          string `json:"content"`
 	ReasoningContent string `json:"reasoning_content"`
+	Reasoning        string `json:"reasoning"`
+}
+
+// reasoning returns the thinking delta regardless of which field the server used.
+func (d delta) reasoning() string {
+	if d.ReasoningContent != "" {
+		return d.ReasoningContent
+	}
+	return d.Reasoning
 }
 
 // Usage is the server-reported token accounting (final chunk).
