@@ -55,7 +55,7 @@ func (c *RunConfig) Validate() error {
 	if c.StartUsers < 1 {
 		return errors.New("--start-users must be >= 1")
 	}
-	if c.MaxUsers < c.StartUsers {
+	if !c.NoSweep && c.MaxUsers < c.StartUsers {
 		return errors.New("--max-users must be >= --start-users")
 	}
 	if c.Requests == 0 && c.Duration <= 0 {
